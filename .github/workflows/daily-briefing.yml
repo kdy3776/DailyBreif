@@ -1,11 +1,15 @@
 name: Daily Investment Briefing
 
-# 평일 아침 7시(KST)에 실행.
-# GitHub Actions의 cron은 UTC 기준이라, 07:00 KST = 전날 22:00 UTC.
-# 0-4 = 일~목(UTC) → 월~금 아침(KST)에 도착.
+# 매일 두 번 실행: 오전 6시 & 오후 3시 (휴스턴, 미 중부시간).
+# GitHub Actions cron은 UTC 고정이며 서머타임을 자동 반영하지 않음.
+# ▶ 현재(여름, CDT = UTC-5) 기준:
+#     06:00 CDT = 11:00 UTC,  15:00 CDT = 20:00 UTC
+# ▶ 겨울(CST = UTC-6)로 바뀌면(11월 첫 일요일~) 아래로 교체:
+#     06:00 CST = 12:00 UTC,  15:00 CST = 21:00 UTC
 on:
   schedule:
-    - cron: "0 22 * * 0-4"
+    - cron: "0 11 * * *"   # 06:00 휴스턴(CDT)
+    - cron: "0 20 * * *"   # 15:00 휴스턴(CDT)
   workflow_dispatch: {}   # 수동 실행(테스트용) 버튼 활성화
 
 jobs:
@@ -33,6 +37,7 @@ jobs:
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          BRIEFING_TZ: America/Chicago   # 리포트 날짜·시간을 휴스턴 기준으로 표기
           # 선택: 모델/검색 횟수 등 조정하고 싶으면 secrets 또는 여기서 지정
           # BRIEFING_MODEL: claude-opus-4-8
         run: python daily_briefing.py
