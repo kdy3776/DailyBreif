@@ -36,11 +36,11 @@ MODEL = os.environ.get("BRIEFING_MODEL", "claude-sonnet-4-6")
 # 동적 필터링이 되는 최신판을 쓰려면 환경변수로 web_search_20260209 지정.
 WEB_SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL", "web_search_20250305")
 MAX_SEARCHES = int(os.environ.get("BRIEFING_MAX_SEARCHES", "18"))
-MAX_TOKENS = int(os.environ.get("BRIEFING_MAX_TOKENS", "8000"))
+MAX_TOKENS = int(os.environ.get("BRIEFING_MAX_TOKENS", "12000"))
 TIMEZONE = os.environ.get("BRIEFING_TZ", "Asia/Seoul")
 
-# 그날 상세분석할 종목 개수 (기본: 이슈에 따라 2~3개)
-STOCK_PICKS = os.environ.get("BRIEFING_STOCK_PICKS", "2~3")
+# 그날 상세분석할 종목 개수 (기본: 5개)
+STOCK_PICKS = os.environ.get("BRIEFING_STOCK_PICKS", "5")
 
 
 SYSTEM_PROMPT = """\
@@ -128,11 +128,11 @@ SYSTEM_PROMPT = """\
 그 다음 ">" 인용구로 '오늘 가장 주목할 섹터 한 줄'을 덧붙이세요.
 
 ※ 위 표의 11개 후보는 '한 줄 근거가 달린 워치리스트'일 뿐, 심층 분석이 아닙니다.
-아래 '오늘의 주목 종목'에서 이 후보 풀과 트렌딩 종목 중 2~3개만 골라 깊게 분석합니다.
+아래 '오늘의 주목 종목'에서 이 후보 풀과 트렌딩 종목 중 {PICKS}개를 골라 깊게 분석합니다.
 
 ## 🔬 오늘의 주목 종목 ({PICKS}개)
-선정 규칙: 위 섹터 표의 11개 후보 + 그날 촉매·트렌딩 종목을 모수로 하여 2~3개만 선별해 심층 분석.
-이 중 적어도 1개는 반드시 섹터 표의 '저평가·과매도 후보'에서 고르세요. (워치리스트→심층의 깔때기)
+선정 규칙: 위 섹터 표의 11개 후보 + 그날 촉매·트렌딩 종목을 모수로 하여 {PICKS}개를 선별해 심층 분석.
+이 중 최소 2개는 반드시 섹터 표의 '저평가·과매도 후보'에서 고르세요. (워치리스트→심층의 깔때기)
 ### [티커] 회사명 (🇺🇸 또는 🇰🇷)
 - **사업모델** — 다음 셋으로 분해:
   · *매출원*: 어디서 돈을 버는지(주요 사업부·제품과 대략적 비중)
