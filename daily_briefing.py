@@ -228,11 +228,17 @@ def _extract_sources(response, limit=15):
 
 def send_email(markdown_body: str, chart_path: str | None = None) -> None:
     """마크다운을 HTML로 변환해 이메일 발송. chart_path가 있으면 인라인 이미지로 삽입."""
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "465"))
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_password = os.environ["SMTP_PASSWORD"]
-    email_from = os.environ.get("EMAIL_FROM", smtp_user)
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+    # 실수로 scheme이나 포트가 붙은 경우 정리 (예: "https://smtp.gmail.com:465")
+    smtp_host = smtp_host.replace("https://", "").replace("http://", "").strip("/ ")
+    if ":" in smtp_host:
+        smtp_host = smtp_host.split(":")[0].strip()
+    if not smtp_host:
+        smtp_host = "smtp.gmail.com"
+    smtp_port = int(os.environ.get("SMTP_PORT", "465").strip() or "465")
+    smtp_user = os.environ["SMTP_USER"].strip()
+    smtp_password = os.environ["SMTP_PASSWORD"]  # 비번은 strip 안 함(공백이 의미 있을 수 있음)
+    email_from = os.environ.get("EMAIL_FROM", smtp_user).strip()
     email_to = [a.strip() for a in os.environ["EMAIL_TO"].split(",") if a.strip()]
 
     now = datetime.datetime.now(ZoneInfo(TIMEZONE))
@@ -318,6 +324,7 @@ def send_email(markdown_body: str, chart_path: str | None = None) -> None:
         img.add_header("Content-Disposition", "inline", filename="macro_dashboard.png")
         root.attach(img)
 
+    print(f"[INFO] SMTP 연결 시도 → {smtp_host}:{smtp_port}")
     with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
         server.login(smtp_user, smtp_password)
         server.sendmail(email_from, email_to, root.as_string())
