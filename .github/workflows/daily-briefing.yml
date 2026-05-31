@@ -1,0 +1,38 @@
+name: Daily Investment Briefing
+
+# 평일 아침 7시(KST)에 실행.
+# GitHub Actions의 cron은 UTC 기준이라, 07:00 KST = 전날 22:00 UTC.
+# 0-4 = 일~목(UTC) → 월~금 아침(KST)에 도착.
+on:
+  schedule:
+    - cron: "0 22 * * 0-4"
+  workflow_dispatch: {}   # 수동 실행(테스트용) 버튼 활성화
+
+jobs:
+  send-briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate & send briefing
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          # 선택: 모델/검색 횟수 등 조정하고 싶으면 secrets 또는 여기서 지정
+          # BRIEFING_MODEL: claude-opus-4-8
+        run: python daily_briefing.py
