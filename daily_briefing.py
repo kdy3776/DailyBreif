@@ -36,7 +36,7 @@ MODEL = os.environ.get("BRIEFING_MODEL", "claude-sonnet-4-6")
 # 동적 필터링이 되는 최신판을 쓰려면 환경변수로 web_search_20260209 지정.
 WEB_SEARCH_TOOL = os.environ.get("WEB_SEARCH_TOOL", "web_search_20250305")
 MAX_SEARCHES = int(os.environ.get("BRIEFING_MAX_SEARCHES", "18"))
-MAX_TOKENS = int(os.environ.get("BRIEFING_MAX_TOKENS", "12000"))
+MAX_TOKENS = int(os.environ.get("BRIEFING_MAX_TOKENS", "20000"))
 TIMEZONE = os.environ.get("BRIEFING_TZ", "Asia/Seoul")
 
 # 그날 상세분석할 종목 개수 (기본: 5개)
