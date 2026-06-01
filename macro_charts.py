@@ -149,11 +149,18 @@ def _draw_panel(ax, label, labels, values, accent):
     ax.set_xlim(-0.4, len(values) - 0.6)
 
 
+def _avg(values, n):
+    v = values[-n:] if len(values) >= n else values
+    return round(sum(v) / len(v), 2) if v else None
+
+
 def build_macro_dashboard(output_path="macro_dashboard.png"):
+    """거시 대시보드 PNG + 평균 표 데이터를 함께 생성.
+    반환: (png_path 또는 None, rows)  — rows = [(label, 현재, 3M, 6M, 12M), ...]"""
     api_key = os.environ.get("FRED_API_KEY")
     if not api_key:
-        print("[INFO] FRED_API_KEY 없음 → 거시 그래프 생략")
-        return None
+        print("[INFO] FRED_API_KEY 없음 → 거시 그래프/평균표 생략")
+        return None, []
 
     panels = []
     for ind in INDICATORS:
@@ -165,7 +172,13 @@ def build_macro_dashboard(output_path="macro_dashboard.png"):
             print(f"[WARN] {ind['series']} 실패: {e}")
     if not panels:
         print("[WARN] 그릴 데이터 없음")
-        return None
+        return None, []
+
+    # 현재값 + 3/6/12개월 평균 표 데이터
+    table_rows = [
+        (label, values[-1], _avg(values, 3), _avg(values, 6), _avg(values, 12))
+        for label, labels, values, _ in panels
+    ]
 
     cols = 2
     rows = (len(panels) + cols - 1) // cols
@@ -188,7 +201,7 @@ def build_macro_dashboard(output_path="macro_dashboard.png"):
     fig.savefig(output_path, dpi=140, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"[OK] 거시 대시보드 생성 → {output_path}")
-    return output_path
+    return output_path, table_rows
 
 
 if __name__ == "__main__":
