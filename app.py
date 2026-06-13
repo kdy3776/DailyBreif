@@ -42,7 +42,7 @@ STATIC_DIR = os.path.join(DATA_DIR, "static")
 DB_PATH = os.path.join(DATA_DIR, "app.db")
 os.makedirs(STATIC_DIR, exist_ok=True)
 
-MD_EXT = ["extra", "sane_lists", "tables", "nl2br"]
+MD_EXT = ["extra", "sane_lists", "tables"]
 
 
 # ──────────────────────────── 저장소 (SQLite) ────────────────────────────
@@ -281,25 +281,43 @@ button{padding:10px 16px;border:0;border-radius:10px;background:var(--ac);color:
 PROGRESS_JS = """
 <script>
 function _fmt(s){let m=Math.floor(s/60),x=s%60;return (m<10?'0':'')+m+':'+(x<10?'0':'')+x;}
-async function runJob(startUrl){
-  let box=document.getElementById('jobbox'); box.style.display='block'; box.innerHTML='작업 시작 중...';
-  let btns=document.querySelectorAll('button'); btns.forEach(b=>b.disabled=true);
-  try{
-    let j=await (await fetch(startUrl,{method:'POST'})).json();
-    let id=j.job_id;
-    let t=setInterval(async()=>{
-      let s=await (await fetch('/api/job/'+id)).json();
-      if(s.status==='running'){
-        box.innerHTML='⏳ '+s.stage+'  ·  단계 '+s.step+'/'+s.total+'  ·  경과 '+_fmt(s.elapsed);
-      }else if(s.status==='done'){
-        clearInterval(t); box.innerHTML='✅ 완료! 불러오는 중...'; location.reload();
-      }else{
-        clearInterval(t); box.innerHTML='⚠️ 오류: '+(s.error||'알 수 없음');
-        btns.forEach(b=>b.disabled=false);
-      }
-    },2000);
-  }catch(e){ box.innerHTML='⚠️ 요청 실패'; btns.forEach(b=>b.disabled=false); }
+function _ensureBox(){
+  let b=document.getElementById('jobbox');
+  if(!b){
+    b=document.createElement('div'); b.id='jobbox'; b.className='jobbox';
+    b.style.position='fixed'; b.style.top='70px'; b.style.left='50%';
+    b.style.transform='translateX(-50%)'; b.style.zIndex='80'; b.style.maxWidth='90vw';
+    b.style.boxShadow='0 6px 20px rgba(0,0,0,.15)';
+    document.body.appendChild(b);
+  }
+  b.style.display='block'; return b;
 }
+let _timer=null;
+function pollJob(id){
+  if(_timer) clearInterval(_timer);
+  let box=_ensureBox();
+  _timer=setInterval(async()=>{
+    let s; try{ s=await (await fetch('/api/job/'+id)).json(); }catch(e){ return; }
+    if(!s || !s.status){ clearInterval(_timer); box.style.display='none'; return; }
+    if(s.status==='running'){
+      box.innerHTML='⏳ '+s.stage+'  ·  단계 '+s.step+'/'+s.total+'  ·  경과 '+_fmt(s.elapsed);
+    }else if(s.status==='done'){
+      clearInterval(_timer); box.innerHTML='✅ 완료! 불러오는 중...'; location.reload();
+    }else{
+      clearInterval(_timer); box.innerHTML='⚠️ 오류: '+(s.error||'알 수 없음');
+      document.querySelectorAll('button').forEach(b=>b.disabled=false);
+    }
+  },2000);
+}
+async function runJob(startUrl){
+  _ensureBox().innerHTML='작업 시작 중...';
+  document.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{ let j=await (await fetch(startUrl,{method:'POST'})).json(); pollJob(j.job_id); }
+  catch(e){ _ensureBox().innerHTML='⚠️ 요청 실패'; document.querySelectorAll('button').forEach(b=>b.disabled=false); }
+}
+document.addEventListener('DOMContentLoaded',async function(){
+  try{ let a=await (await fetch('/api/active')).json(); if(a && a.job_id){ pollJob(a.job_id); } }catch(e){}
+});
 </script>
 """
 
@@ -531,4 +549,17 @@ def api_job(jid: str, _: None = Depends(require_auth)):
         raise HTTPException(404)
     return {"status": j["status"], "stage": j["stage"], "step": j["step"],
             "total": j["total"], "error": j["error"], "result_id": j["result_id"],
+            "elapsed": int(time.time() - j["started"])}
+
+
+@app.get("/api/active")
+def api_active(_: None = Depends(require_auth)):
+    """현재 실행 중인 작업이 있으면 그 id/종류 반환(페이지 이동 후 진행상황 복구용)."""
+    running = [(jid, j) for jid, j in JOBS.items() if j["status"] == "running"]
+    if not running:
+        return {"job_id": None}
+    running.sort(key=lambda kv: kv[1]["started"], reverse=True)
+    jid, j = running[0]
+    return {"job_id": jid, "kind": j["kind"],
+            "stage": j["stage"], "step": j["step"], "total": j["total"],
             "elapsed": int(time.time() - j["started"])}
