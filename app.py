@@ -94,24 +94,39 @@ def list_rows(table, limit=60):
         return [dict(r) for r in rs]
 
 
-# ──────────────────────────── 생성 작업 ────────────────────────────
-def run_daily_job():
-    """브리핑 생성 → 거시 그래프 → 이메일 발송 → 웹용 저장."""
+# ──────────────────────────── 생성 작업 (진행상황 추적) ────────────────────────────
+import threading
+import uuid
+import time
+
+JOBS = {}  # job_id -> 상태 dict
+
+
+def _set(jid, **kw):
+    if jid and jid in JOBS:
+        JOBS[jid].update(kw)
+
+
+def run_daily_job(jid=None):
+    """브리핑 생성 → 거시 그래프 → 이메일 발송 → 웹용 저장. (jid 주면 단계 보고)"""
+    _set(jid, stage="① 브리핑 작성 중 (웹서치, 1~2분)", step=1)
     print("[JOB] 데일리 브리핑 생성 시작")
     briefing = generate_briefing()
+
+    _set(jid, stage="② 거시 그래프 생성", step=2)
     chart_path, rows = None, []
     try:
         chart_path, rows = build_macro_dashboard(os.path.join(DATA_DIR, "macro_tmp.png"))
     except Exception as e:  # noqa: BLE001
         print(f"[WARN] 거시 그래프 실패: {e}")
 
-    # 이메일은 기존 방식 그대로(토큰 인라인 처리)
+    _set(jid, stage="③ 이메일 발송", step=3)
     try:
         send_email(briefing, chart_path, rows)
     except Exception as e:  # noqa: BLE001
         print(f"[WARN] 이메일 발송 실패(웹 저장은 계속): {e}")
 
-    # 웹 표시용: 토큰을 실제 표/이미지로 치환해 저장
+    _set(jid, stage="④ 저장", step=4)
     web_md = briefing.replace("{{MACRO_TABLE}}", _macro_table_md(rows) or "")
     if chart_path and os.path.exists(chart_path):
         fname = f"macro_{_now().strftime('%Y%m%d_%H%M%S')}.png"
@@ -124,12 +139,32 @@ def run_daily_job():
     return rid
 
 
-def run_outlook_job():
+def run_outlook_job(jid=None):
+    _set(jid, stage="① 전망 분석 중 (웹서치, 2~3분)", step=1)
     print("[JOB] 전망 생성 시작")
     out = generate_outlook()
+    _set(jid, stage="② 저장", step=2)
     rid = save_row("outlooks", out)
     print(f"[JOB] 전망 저장 id={rid}")
     return rid
+
+
+def start_job(kind, target, total):
+    """백그라운드 스레드로 실행하고 job_id 반환."""
+    jid = uuid.uuid4().hex[:12]
+    JOBS[jid] = {"kind": kind, "stage": "시작", "step": 0, "total": total,
+                 "status": "running", "error": None, "result_id": None, "started": time.time()}
+
+    def runner():
+        try:
+            rid = target(jid)
+            _set(jid, status="done", result_id=rid, stage="✅ 완료", step=total)
+        except Exception as e:  # noqa: BLE001
+            print(f"[JOB] 실패: {e}")
+            _set(jid, status="error", error=str(e), stage="⚠️ 오류")
+
+    threading.Thread(target=runner, daemon=True).start()
+    return jid
 
 
 # ──────────────────────────── 채팅 (Q&A) ────────────────────────────
@@ -209,7 +244,34 @@ nav a.active{background:#fff;color:#1e293b;font-weight:600}
 .askbar input{flex:1;padding:12px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px}
 .askbar button{padding:12px 18px;border:0;border-radius:10px;background:var(--ac);color:#fff;font-weight:600;cursor:pointer}
 button{padding:10px 16px;border:0;border-radius:10px;background:var(--ac);color:#fff;font-weight:600;cursor:pointer}
+.jobbox{display:none;margin-top:12px;padding:12px 14px;border-radius:10px;background:#f1f5f9;
+ border:1px solid #e2e8f0;font-size:13px;color:#334155}
 .muted{color:#94a3b8;font-size:12px}
+"""
+
+PROGRESS_JS = """
+<script>
+function _fmt(s){let m=Math.floor(s/60),x=s%60;return (m<10?'0':'')+m+':'+(x<10?'0':'')+x;}
+async function runJob(startUrl){
+  let box=document.getElementById('jobbox'); box.style.display='block'; box.innerHTML='작업 시작 중...';
+  let btns=document.querySelectorAll('button'); btns.forEach(b=>b.disabled=true);
+  try{
+    let j=await (await fetch(startUrl,{method:'POST'})).json();
+    let id=j.job_id;
+    let t=setInterval(async()=>{
+      let s=await (await fetch('/api/job/'+id)).json();
+      if(s.status==='running'){
+        box.innerHTML='⏳ '+s.stage+'  ·  단계 '+s.step+'/'+s.total+'  ·  경과 '+_fmt(s.elapsed);
+      }else if(s.status==='done'){
+        clearInterval(t); box.innerHTML='✅ 완료! 불러오는 중...'; location.reload();
+      }else{
+        clearInterval(t); box.innerHTML='⚠️ 오류: '+(s.error||'알 수 없음');
+        btns.forEach(b=>b.disabled=false);
+      }
+    },2000);
+  }catch(e){ box.innerHTML='⚠️ 요청 실패'; btns.forEach(b=>b.disabled=false); }
+}
+</script>
 """
 
 
@@ -226,6 +288,7 @@ def page(title, active, body, side_html=""):
 <style>{CSS}</style></head><body>
 <header><h1>📈 데일리 투자 브리핑</h1><nav>{nav}</nav></header>
 <div class="wrap"><div class="side">{side_html or "&nbsp;"}</div><div class="main">{body}</div></div>
+{PROGRESS_JS}
 </body></html>"""
 
 
@@ -268,15 +331,18 @@ def healthz():
 @app.get("/", response_class=HTMLResponse)
 def home(_: None = Depends(require_auth)):
     latest = latest_row("briefings")
+    gen = ('<button onclick="runJob(\'/api/generate\')">🔄 지금 브리핑 생성</button>'
+           '<div id="jobbox" class="jobbox"></div>')
     if not latest:
         body = ('<div class="card"><h1>아직 브리핑이 없어요</h1>'
-                '<p>스케줄러가 다음 예약 시각에 첫 브리핑을 만들거나, 아래 버튼으로 지금 생성할 수 있어요.</p>'
-                '<p><button onclick="gen()">지금 브리핑 생성</button> '
-                '<span id="s" class="muted"></span></p>'
-                '<script>async function gen(){document.getElementById("s").innerText="생성 중...(1~2분)";'
-                'await fetch("/api/generate",{method:"POST"});location.reload();}</script></div>')
+                '<p>스케줄러가 다음 예약 시각에 첫 브리핑을 만들거나, 아래 버튼으로 지금 생성할 수 있어요. '
+                '(웹서치 포함이라 1~2분 걸려요 — 진행 단계가 표시됩니다.)</p>'
+                f'{gen}</div>')
         return page("대시보드", "home", body, archive_side())
-    body = (f'<div class="card"><div class="muted">생성: {latest["date_label"]}</div>'
+    body = (f'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center">'
+            f'<div class="muted">생성: {latest["date_label"]}</div>'
+            f'<button onclick="runJob(\'/api/generate\')" style="font-size:12px;padding:7px 12px">🔄 새로 생성</button>'
+            f'</div><div id="jobbox" class="jobbox"></div>'
             f'{render_md(latest["content_md"])}</div>')
     return page("대시보드", "home", body, archive_side())
 
@@ -298,10 +364,8 @@ def outlook_page(_: None = Depends(require_auth)):
         "<h1>전망이 아직 없어요</h1><p>매월 1일 자동 생성되거나, 아래 버튼으로 지금 만들 수 있어요.</p>"
     head = f'<div class="muted">생성: {latest["date_label"]}</div>' if latest else ""
     body = (f'<div class="card">{head}{inner}'
-            '<p style="margin-top:18px"><button onclick="gen()">전망 새로 생성</button> '
-            '<span id="s" class="muted"></span></p></div>'
-            '<script>async function gen(){document.getElementById("s").innerText="생성 중...(2~3분)";'
-            'await fetch("/api/outlook",{method:"POST"});location.reload();}</script>')
+            '<p style="margin-top:18px"><button onclick="runJob(\'/api/outlook\')">🔮 전망 새로 생성</button></p>'
+            '<div id="jobbox" class="jobbox"></div></div>')
     return page("전망", "outlook", body)
 
 
@@ -337,15 +401,19 @@ def api_ask(payload: dict, _: None = Depends(require_auth)):
 
 @app.post("/api/generate")
 def api_generate(_: None = Depends(require_auth)):
-    try:
-        return {"ok": True, "id": run_daily_job()}
-    except Exception as e:  # noqa: BLE001
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    return {"job_id": start_job("daily", run_daily_job, 4)}
 
 
 @app.post("/api/outlook")
 def api_outlook(_: None = Depends(require_auth)):
-    try:
-        return {"ok": True, "id": run_outlook_job()}
-    except Exception as e:  # noqa: BLE001
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    return {"job_id": start_job("outlook", run_outlook_job, 2)}
+
+
+@app.get("/api/job/{jid}")
+def api_job(jid: str, _: None = Depends(require_auth)):
+    j = JOBS.get(jid)
+    if not j:
+        raise HTTPException(404)
+    return {"status": j["status"], "stage": j["stage"], "step": j["step"],
+            "total": j["total"], "error": j["error"], "result_id": j["result_id"],
+            "elapsed": int(time.time() - j["started"])}
