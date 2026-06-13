@@ -247,6 +247,18 @@ button{padding:10px 16px;border:0;border-radius:10px;background:var(--ac);color:
 .jobbox{display:none;margin-top:12px;padding:12px 14px;border-radius:10px;background:#f1f5f9;
  border:1px solid #e2e8f0;font-size:13px;color:#334155}
 .muted{color:#94a3b8;font-size:12px}
+/* 드래그 선택 → 즉시 질문 */
+#selask{position:absolute;display:none;z-index:50;background:#1e293b;color:#fff;border:0;
+ border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;
+ box-shadow:0 4px 14px rgba(0,0,0,.25)}
+#popask{position:fixed;right:18px;bottom:18px;width:min(380px,92vw);max-height:70vh;display:none;
+ z-index:60;background:#fff;border:1px solid #e2e8f0;border-radius:14px;
+ box-shadow:0 10px 40px rgba(15,23,42,.22);overflow:hidden;flex-direction:column}
+#popask .ph{background:linear-gradient(135deg,#1e293b,#4338ca);color:#fff;padding:10px 14px;
+ font-size:13px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+#popask .ph span{cursor:pointer;opacity:.8}
+#popask .pb{padding:12px 14px;overflow-y:auto;font-size:13.5px;line-height:1.6}
+#popask .q{color:#64748b;font-size:12px;border-left:3px solid var(--ac);padding-left:8px;margin-bottom:10px}
 """
 
 PROGRESS_JS = """
@@ -274,6 +286,57 @@ async function runJob(startUrl){
 </script>
 """
 
+# 드래그 선택 → 그 자리에서 바로 질문 (탭 이동 없이 팝업으로 답변)
+SELECT_ASK = """
+<button id="selask">💬 이거 물어보기</button>
+<div id="popask">
+  <div class="ph">💬 선택 내용 물어보기 <span onclick="document.getElementById('popask').style.display='none'">✕</span></div>
+  <div class="pb">
+    <div class="q" id="pq"></div>
+    <div id="pa" class="muted">브리핑에서 문장을 드래그한 뒤 버튼을 누르세요.</div>
+    <div style="display:flex;gap:6px;margin-top:10px">
+      <input id="pf" placeholder="추가 질문 (선택)" style="flex:1;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px" onkeydown="if(event.key==='Enter')askSel()">
+      <button onclick="askSel()" style="padding:8px 12px">전송</button>
+    </div>
+  </div>
+</div>
+<script>
+let _sel='';
+document.addEventListener('mouseup',function(e){
+  if(e.target && e.target.id==='selask') return;
+  let s=window.getSelection(); let txt=(s?s.toString():'').trim();
+  let btn=document.getElementById('selask');
+  let inCard = s.anchorNode && s.anchorNode.parentElement && s.anchorNode.parentElement.closest && s.anchorNode.parentElement.closest('.card');
+  if(txt.length>0 && inCard){
+    _sel=txt.slice(0,1500);
+    let r=s.getRangeAt(0).getBoundingClientRect();
+    btn.style.top=(window.scrollY+r.bottom+6)+'px';
+    btn.style.left=(window.scrollX+r.left)+'px';
+    btn.style.display='block';
+  } else { btn.style.display='none'; }
+});
+document.addEventListener('mousedown',function(e){
+  if(e.target && e.target.id!=='selask'){ document.getElementById('selask').style.display='none'; }
+});
+document.getElementById('selask').addEventListener('click',function(){
+  this.style.display='none';
+  document.getElementById('pq').innerText='\u201C'+_sel.slice(0,180)+(_sel.length>180?'\u2026':'')+'\u201D';
+  document.getElementById('pf').value='';
+  document.getElementById('popask').style.display='flex';
+  askSel();
+});
+async function askSel(){
+  let f=document.getElementById('pf').value.trim();
+  let q='다음은 브리핑에서 선택한 내용입니다:\\n\\n"'+_sel+'"\\n\\n'+(f||'이 내용을 쉽게 설명하고, 투자 관점에서 핵심과 주의점을 짚어줘.');
+  let pa=document.getElementById('pa'); pa.classList.remove('muted'); pa.innerText='생각 중...';
+  try{
+    let r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    let j=await r.json(); pa.innerText=j.answer;
+  }catch(e){ pa.innerText='오류가 발생했어요.'; }
+}
+</script>
+"""
+
 
 def page(title, active, body, side_html=""):
     nav = "".join(
@@ -289,6 +352,7 @@ def page(title, active, body, side_html=""):
 <header><h1>📈 데일리 투자 브리핑</h1><nav>{nav}</nav></header>
 <div class="wrap"><div class="side">{side_html or "&nbsp;"}</div><div class="main">{body}</div></div>
 {PROGRESS_JS}
+{SELECT_ASK}
 </body></html>"""
 
 
