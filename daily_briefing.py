@@ -317,7 +317,7 @@ def send_email(markdown_body: str, chart_path: str | None = None, macro_rows=Non
     # 플레인텍스트는 차트 토큰 제거
     plain_body = markdown_body.replace("{{MACRO_CHART}}", "[거시 12개월 추이 그래프 — HTML 메일에서 확인]")
 
-    html_body = md.markdown(markdown_body, extensions=["extra", "sane_lists", "tables", "nl2br"])
+    html_body = md.markdown(markdown_body, extensions=["extra", "sane_lists", "tables"])
     # 차트 토큰을 실제 이미지(cid) 또는 빈 문자열로 치환 (md가 <p>로 감쌀 수 있어 양쪽 처리)
     if chart_path:
         img_tag = ('<img class="macro" src="cid:macro_chart" alt="Macro Dashboard">')
