@@ -42,7 +42,7 @@ STATIC_DIR = os.path.join(DATA_DIR, "static")
 DB_PATH = os.path.join(DATA_DIR, "app.db")
 os.makedirs(STATIC_DIR, exist_ok=True)
 
-MD_EXT = ["extra", "sane_lists", "tables"]
+MD_EXT = ["extra", "sane_lists", "tables", "nl2br"]
 
 
 # ──────────────────────────── 저장소 (SQLite) ────────────────────────────
@@ -60,6 +60,9 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS outlooks(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT, date_label TEXT, content_md TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS qas(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT, date_label TEXT, question TEXT, answer TEXT)""")
 
 
 def _now():
@@ -91,6 +94,20 @@ def list_rows(table, limit=60):
     with db() as c:
         rs = c.execute(
             f"SELECT id, date_label FROM {table} ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rs]
+
+
+def save_qa(question, answer):
+    now = _now()
+    with db() as c:
+        c.execute("INSERT INTO qas(created_at, date_label, question, answer) VALUES (?,?,?,?)",
+                  (now.isoformat(), now.strftime("%m-%d %H:%M"), question, answer))
+
+
+def list_qas(limit=40):
+    with db() as c:
+        rs = c.execute(
+            "SELECT date_label, question, answer FROM qas ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rs]
 
 
@@ -363,6 +380,13 @@ def archive_side():
     return f"<h3>지난 브리핑</h3>{links}"
 
 
+def outlook_side():
+    items = list_rows("outlooks")
+    links = "".join(f'<a href="/o/{r["id"]}">{r["date_label"]}</a>' for r in items) or \
+        '<div class="muted" style="padding:8px">아직 없음</div>'
+    return f"<h3>지난 전망</h3>{links}"
+
+
 def render_md(content_md):
     return md.markdown(content_md, extensions=MD_EXT)
 
@@ -430,13 +454,34 @@ def outlook_page(_: None = Depends(require_auth)):
     body = (f'<div class="card">{head}{inner}'
             '<p style="margin-top:18px"><button onclick="runJob(\'/api/outlook\')">🔮 전망 새로 생성</button></p>'
             '<div id="jobbox" class="jobbox"></div></div>')
-    return page("전망", "outlook", body)
+    return page("전망", "outlook", body, outlook_side())
+
+
+@app.get("/o/{rid}", response_class=HTMLResponse)
+def view_outlook(rid: int, _: None = Depends(require_auth)):
+    r = get_row("outlooks", rid)
+    if not r:
+        raise HTTPException(404)
+    body = (f'<div class="card"><div class="muted">생성: {r["date_label"]}</div>'
+            f'{render_md(r["content_md"])}</div>')
+    return page("전망", "outlook", body, outlook_side())
 
 
 @app.get("/ask", response_class=HTMLResponse)
 def ask_page(_: None = Depends(require_auth)):
+    import html as _h
+    hist = list_qas()
+    hist_html = ""
+    if hist:
+        rows = "".join(
+            f'<div style="border-top:1px solid #eef2f7;padding:12px 0">'
+            f'<div class="muted">{r["date_label"]}</div>'
+            f'<div style="font-weight:600;margin:4px 0">Q. {_h.escape(r["question"][:300])}</div>'
+            f'<div style="font-size:13.5px;line-height:1.6">{render_md(r["answer"])}</div></div>'
+            for r in hist)
+        hist_html = f'<div class="card" style="margin-top:16px"><h2>🕘 지난 질문 기록</h2>{rows}</div>'
     body = ('<div class="card"><h1>💬 물어보기</h1>'
-            '<p class="muted">최신 브리핑을 바탕으로, 필요하면 웹을 검색해 답합니다. (투자 자문 아님)</p>'
+            '<p class="muted">최신 브리핑을 바탕으로, 필요하면 웹을 검색해 답합니다. (투자 자문 아님) · 모든 질문은 아래에 기록돼요.</p>'
             '<div id="log"></div>'
             '<div class="askbar"><input id="q" placeholder="예: 오늘 반도체 섹터 핵심만 요약해줘" '
             "onkeydown=\"if(event.key==='Enter')send()\"><button onclick=\"send()\">전송</button></div>"
@@ -448,7 +493,8 @@ def ask_page(_: None = Depends(require_auth)):
             'try{let r=await fetch("/api/ask",{method:"POST",headers:{"Content-Type":"application/json"},'
             'body:JSON.stringify({question:q})});let j=await r.json();a.innerText=j.answer;}'
             'catch(e){a.innerText="오류가 발생했어요.";}}'
-            '</script></div>')
+            '</script></div>'
+            + hist_html)
     return page("물어보기", "ask", body)
 
 
@@ -458,7 +504,12 @@ def api_ask(payload: dict, _: None = Depends(require_auth)):
     if not q:
         return JSONResponse({"answer": "질문을 입력해 주세요."})
     try:
-        return JSONResponse({"answer": answer_question(q)})
+        ans = answer_question(q)
+        try:
+            save_qa(q, ans)
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] Q&A 저장 실패: {e}")
+        return JSONResponse({"answer": ans})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"answer": f"오류: {e}"}, status_code=500)
 
