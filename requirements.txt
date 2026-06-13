@@ -1,3 +1,6 @@
 anthropic>=0.40.0
 markdown>=3.5
 matplotlib>=3.8
+fastapi>=0.110
+uvicorn[standard]>=0.29
+apscheduler>=3.10
