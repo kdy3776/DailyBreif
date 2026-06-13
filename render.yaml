@@ -1,0 +1,44 @@
+# Render 배포 설정 (Blueprint)
+# Render 대시보드에서 "New + → Blueprint" → 이 저장소 선택하면 자동 인식됩니다.
+# 환경변수(키)는 보안상 여기 적지 않고 Render 대시보드에서 직접 입력하세요.
+services:
+  - type: web
+    name: investment-briefing
+    runtime: python
+    plan: starter            # 상시 가동 + 영구 디스크 가능한 최소 유료 플랜
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    disk:
+      name: data
+      mountPath: /var/data   # SQLite·그래프가 여기 저장되어 재배포에도 보존
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+      - key: BRIEFING_TZ
+        value: America/Chicago
+      - key: DAILY_HOUR
+        value: "6"
+      - key: DAILY_MINUTE
+        value: "13"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_TO
+        sync: false
+      - key: FRED_API_KEY
+        sync: false
+      - key: APP_USER
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
